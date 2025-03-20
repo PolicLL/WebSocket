@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Game</title>
+</head>
+<body>
+    <h2>WebSocket Game</h2>
+    <div id="gameStatus"></div>
+    <input type="text" id="numberInput" placeholder="Enter your number" style="display:none;">
+    <button onclick="startGame()">Start Game</button>
+
+    <script>
+        let socket;
+        let gameStarted = false;
+
+        function startGame() {
+            socket = new WebSocket("ws://localhost:8080/game");
+
+            socket.onopen = function(event) {
+                console.log("Connected to WebSocket server.");
+            };
+
+            socket.onmessage = function(event) {
+                const message = event.data;
+                document.getElementById("gameStatus").innerHTML = message;
+
+                if (message.includes("Please enter a number")) {
+                    document.getElementById("numberInput").style.display = "inline";
+                    document.getElementById("numberInput").focus();
+                } else if (message.includes("wins") || message.includes("tie")) {
+                    document.getElementById("numberInput").style.display = "none";
+                }
+            };
+
+            socket.onclose = function(event) {
+                console.log("Disconnected from WebSocket server.");
+            };
+        }
+
+        // Send the number entered by the player
+        document.getElementById("numberInput").addEventListener("input", function() {
+            if (this.value.trim()) {
+                socket.send(this.value.trim());
+                this.value = '';
+                this.style.display = "none";
+            }
+        });
+    </script>
+</body>
+</html>
