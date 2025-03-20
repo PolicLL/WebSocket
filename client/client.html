@@ -8,12 +8,15 @@
 <body>
     <h2>WebSocket Game</h2>
     <div id="gameStatus"></div>
+    <div id="yourNumbers"></div> <!-- Displays only the current player's numbers -->
     <input type="text" id="numberInput" placeholder="Enter your number" style="display:none;">
+    <button id="submitBtn" onclick="submitChoice()" style="display:none;">Submit Number</button>
     <button onclick="startGame()">Start Game</button>
 
     <script>
         let socket;
         let gameStarted = false;
+        let playerNumbers = []; // Will hold the player's numbers
 
         function startGame() {
             socket = new WebSocket("ws://localhost:8080/game");
@@ -26,11 +29,21 @@
                 const message = event.data;
                 document.getElementById("gameStatus").innerHTML = message;
 
-                if (message.includes("Please enter a number")) {
+                // Show the input field and submit button when prompted to choose a number
+                if (message.includes("choose a number")) {
                     document.getElementById("numberInput").style.display = "inline";
+                    document.getElementById("submitBtn").style.display = "inline";
                     document.getElementById("numberInput").focus();
                 } else if (message.includes("wins") || message.includes("tie")) {
                     document.getElementById("numberInput").style.display = "none";
+                    document.getElementById("submitBtn").style.display = "none"; // Hide button at the end
+                }
+
+                // If the message contains the player's numbers, display them
+                if (message.includes("Your numbers")) {
+                    let numbers = message.split(":")[1].trim();
+                    playerNumbers = JSON.parse(numbers); // Parse the numbers
+                    document.getElementById("yourNumbers").innerHTML = "Your numbers: " + playerNumbers.join(", ");
                 }
             };
 
@@ -39,14 +52,18 @@
             };
         }
 
-        // Send the number entered by the player
-        document.getElementById("numberInput").addEventListener("input", function() {
-            if (this.value.trim()) {
-                socket.send(this.value.trim());
-                this.value = '';
-                this.style.display = "none";
+        // Submit the chosen number when the "Submit Number" button is clicked
+        function submitChoice() {
+            const chosenNumber = document.getElementById("numberInput").value.trim();
+            if (chosenNumber && playerNumbers.includes(parseInt(chosenNumber))) {
+                socket.send(chosenNumber);  // Send the chosen number to the server
+                document.getElementById("numberInput").value = '';  // Clear the input field after submission
+                document.getElementById("numberInput").style.display = "none";  // Hide the input field
+                document.getElementById("submitBtn").style.display = "none";  // Hide the submit button after submission
+            } else {
+                alert("Please select a valid number from your list!");
             }
-        });
+        }
     </script>
 </body>
 </html>
