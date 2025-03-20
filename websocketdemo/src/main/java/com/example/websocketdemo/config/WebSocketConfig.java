@@ -13,7 +13,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
 
   @Override
   public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-    registry.addHandler(new ChatWebSocketHandler(), "/chat/{username}")
+    registry.addHandler(new ChatWebSocketHandler(), "/game")
         .setAllowedOrigins("*")  // Allow all origins
         .addInterceptors(new HandshakeInterceptor() {
           @Override
