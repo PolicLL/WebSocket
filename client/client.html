@@ -4,66 +4,90 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebSocket Game</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
+        #numbers { margin-top: 20px; }
+        .number-btn { margin: 5px; padding: 10px; font-size: 16px; cursor: pointer; }
+        #status { margin-top: 20px; font-size: 18px; font-weight: bold; }
+    </style>
 </head>
 <body>
-    <h2>WebSocket Game</h2>
-    <div id="gameStatus"></div>
-    <div id="yourNumbers"></div> <!-- Displays only the current player's numbers -->
-    <input type="text" id="numberInput" placeholder="Enter your number" style="display:none;">
-    <button id="submitBtn" onclick="submitChoice()" style="display:none;">Submit Number</button>
-    <button onclick="startGame()">Start Game</button>
+
+    <h1>WebSocket Number Game</h1>
+    <button onclick="connectWebSocket()">Join Game</button>
+
+    <div id="game-area" style="display: none;">
+        <h2>Your Numbers</h2>
+        <div id="numbers"></div>
+
+        <h3>Choose a Number:</h3>
+        <input type="number" id="number-input" placeholder="Enter your choice">
+        <button id="submit-btn" onclick="sendNumber()">Submit</button>
+
+        <p id="status"></p>
+    </div>
 
     <script>
         let socket;
-        let gameStarted = false;
-        let playerNumbers = []; // Will hold the player's numbers
+        let numbers = [];
 
-        function startGame() {
-            socket = new WebSocket("ws://localhost:8080/game");
+        function connectWebSocket() {
+            socket = new WebSocket("ws://localhost:8080/game"); // Change port if needed
 
-            socket.onopen = function(event) {
-                console.log("Connected to WebSocket server.");
+            socket.onopen = () => {
+                document.getElementById("status").innerText = "Connected! Waiting for opponent...";
             };
 
-            socket.onmessage = function(event) {
+            socket.onmessage = (event) => {
                 const message = event.data;
-                document.getElementById("gameStatus").innerHTML = message;
 
-                // Show the input field and submit button when prompted to choose a number
-                if (message.includes("choose a number")) {
-                    document.getElementById("numberInput").style.display = "inline";
-                    document.getElementById("submitBtn").style.display = "inline";
-                    document.getElementById("numberInput").focus();
-                } else if (message.includes("wins") || message.includes("tie")) {
-                    document.getElementById("numberInput").style.display = "none";
-                    document.getElementById("submitBtn").style.display = "none"; // Hide button at the end
-                }
+                if (message.startsWith("Your numbers:")) {
+numbers = message.replace("Your numbers: ", "").trim().split(",").map(n => parseInt(n, 10)).filter(n => !isNaN(n));
 
-                // If the message contains the player's numbers, display them
-                if (message.includes("Your numbers")) {
-                    let numbers = message.split(":")[1].trim();
-                    playerNumbers = JSON.parse(numbers); // Parse the numbers
-                    document.getElementById("yourNumbers").innerHTML = "Your numbers: " + playerNumbers.join(", ");
+                    displayNumbers();
+                } else {
+                    document.getElementById("status").innerText = message;
                 }
             };
 
-            socket.onclose = function(event) {
-                console.log("Disconnected from WebSocket server.");
+            socket.onclose = () => {
+                document.getElementById("status").innerText = "Disconnected from server.";
             };
+
+            socket.onerror = (error) => {
+                console.error("WebSocket Error:", error);
+            };
+
+            document.getElementById("game-area").style.display = "block";
         }
 
-        // Submit the chosen number when the "Submit Number" button is clicked
-        function submitChoice() {
-            const chosenNumber = document.getElementById("numberInput").value.trim();
-            if (chosenNumber && playerNumbers.includes(parseInt(chosenNumber))) {
-                socket.send(chosenNumber);  // Send the chosen number to the server
-                document.getElementById("numberInput").value = '';  // Clear the input field after submission
-                document.getElementById("numberInput").style.display = "none";  // Hide the input field
-                document.getElementById("submitBtn").style.display = "none";  // Hide the submit button after submission
-            } else {
-                alert("Please select a valid number from your list!");
+        function displayNumbers() {
+            const numbersDiv = document.getElementById("numbers");
+            numbersDiv.innerHTML = ""; // Clear previous numbers
+
+            numbers.forEach(num => {
+                const btn = document.createElement("button");
+                btn.innerText = num;
+                btn.classList.add("number-btn");
+                btn.onclick = () => selectNumber(num);
+                numbersDiv.appendChild(btn);
+            });
+        }
+
+        function selectNumber(num) {
+            document.getElementById("number-input").value = num;
+        }
+
+        function sendNumber() {
+            const chosenNumber = document.getElementById("number-input").value;
+
+            if (chosenNumber && socket) {
+                socket.send(chosenNumber);
+                document.getElementById("status").innerText = "Waiting for the other player...";
+                document.getElementById("number-input").value = ""; // Clear input
             }
         }
     </script>
+
 </body>
 </html>

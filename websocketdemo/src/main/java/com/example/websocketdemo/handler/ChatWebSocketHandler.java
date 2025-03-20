@@ -1,132 +1,138 @@
 package com.example.websocketdemo.handler;
 
-import org.springframework.web.socket.WebSocketSession;
-import org.springframework.web.socket.handler.TextWebSocketHandler;
-import org.springframework.web.socket.TextMessage;
-
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Random;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Set;
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 public class ChatWebSocketHandler extends TextWebSocketHandler {
 
-  private WebSocketSession client1 = null;
-  private WebSocketSession client2 = null;
-  private final List<Integer> client1Numbers = new ArrayList<>();
-  private final List<Integer> client2Numbers = new ArrayList<>();
-  private final List<Integer> availableNumbers = new ArrayList<>();
-  private final AtomicInteger turn = new AtomicInteger(0); // Tracks whose turn it is
+  private static final Set<WebSocketSession> sessions = new HashSet<>();
+  private static List<Integer> player1Numbers = new ArrayList<>();
+  private static List<Integer> player2Numbers = new ArrayList<>();
+  private static List<Integer> player1Choices = new ArrayList<>();
+  private static List<Integer> player2Choices = new ArrayList<>();
 
   @Override
   public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-    if (client1 == null) {
-      client1 = session;
-      client1.sendMessage(new TextMessage("Waiting for second player..."));
-    } else if (client2 == null) {
-      client2 = session;
-      client2.sendMessage(new TextMessage("Both players connected!"));
-      generateNumbers();
-      sendNumbersToPlayers();
+    sessions.add(session);
+    System.out.println("New client connected.");
+
+    // Generate 4 random numbers for each player
+    if (sessions.size() == 1) {
+      generateNumbers(player1Numbers);
+      sendNumbersToPlayer(session, player1Numbers);
+      session.sendMessage(new TextMessage("You are Player 1. Please wait for Player 2 to connect."));
+    } else if (sessions.size() == 2) {
+      generateNumbers(player2Numbers);
+      sendNumbersToPlayer(session, player2Numbers);
+      sessions.iterator().next().sendMessage(new TextMessage("Player 2 has connected. You can now start choosing numbers."));
+      session.sendMessage(new TextMessage("You are Player 2. Please wait for Player 1 to choose a number."));
     }
-  }
 
-  private void generateNumbers() {
-    Random random = new Random();
-    for (int i = 0; i < 8; i++) {
-      availableNumbers.add(random.nextInt(100) + 1);
-    }
-  }
-
-  private void sendNumbersToPlayers() throws IOException {
-    List<Integer> client1PrivateNumbers = new ArrayList<>(availableNumbers.subList(0, 4));
-    List<Integer> client2PrivateNumbers = new ArrayList<>(availableNumbers.subList(4, 8));
-
-    client1.sendMessage(new TextMessage("Available numbers: [" + client1PrivateNumbers + "]"));
-    client2.sendMessage(new TextMessage("Available numbers: [" + client2PrivateNumbers + "]"));
-
-    promptPlayer(client1);
-  }
-
-  private void promptPlayer(WebSocketSession session) throws IOException {
-    if (session == client1) {
-      client1.sendMessage(new TextMessage("Player 1, choose a number from your list."));
-    } else {
-      client2.sendMessage(new TextMessage("Player 2, choose a number from your list."));
+    // Once both players are connected, start the game
+    if (sessions.size() == 2) {
+      sessions.iterator().next().sendMessage(new TextMessage("It is Player 1's turn. Please choose a number."));
+      sessions.iterator().next().sendMessage(new TextMessage("It is Player 2's turn. Please wait for Player 1 to choose a number."));
     }
   }
 
   @Override
   protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
-    String chosenNumberString = message.getPayload();
-    int chosenNumber;
-    try {
-      chosenNumber = Integer.parseInt(chosenNumberString);
-    } catch (NumberFormatException e) {
-      session.sendMessage(new TextMessage("Invalid input. Please choose a valid number!"));
-      return;
+    String choice = message.getPayload().trim();
+
+    // Handle the player's choice
+    handlePlayerChoice(session, choice);
+  }
+
+  private void handlePlayerChoice(WebSocketSession session, String choice) throws IOException {
+    int selectedNumber = Integer.parseInt(choice);
+
+    if (sessions.iterator().next().equals(session)) {
+      player1Choices.add(selectedNumber);
+      player1Numbers.remove(Integer.valueOf(selectedNumber)); // Remove the chosen number
+    } else {
+      player2Choices.add(selectedNumber);
+      player2Numbers.remove(Integer.valueOf(selectedNumber)); // Remove the chosen number
     }
 
-    if (session == client1) {
-      handlePlayerChoice(client1, chosenNumber, client1Numbers);
-    } else if (session == client2) {
-      handlePlayerChoice(client2, chosenNumber, client2Numbers);
+    // Send the updated list of numbers to both players (hide the chosen numbers)
+    sendNumbersToPlayer(session, getPlayerNumbers(session));
+
+    // If both players have selected 4 numbers, announce the winner and reset for next round
+    if (player1Choices.size() == 4 && player2Choices.size() == 4) {
+      // Compare the chosen numbers and declare the winner
+      String result = compareChoices();
+      for (WebSocketSession ws : sessions) {
+        ws.sendMessage(new TextMessage(result));
+      }
+
+      // Reset for next round
+      resetGame();
+    } else {
+      // Otherwise, send the next prompt
+      sendNextTurnMessage();
     }
   }
 
-  private void handlePlayerChoice(WebSocketSession session, int chosenNumber, List<Integer> playerNumbers) throws IOException {
-    // Ensure the number is part of the player's numbers
-    if (!playerNumbers.contains(chosenNumber)) {
-      session.sendMessage(new TextMessage("You can only choose from your available numbers."));
-      return;
-    }
-
-    // Remove the chosen number from the player's list and the available list
-    playerNumbers.remove(Integer.valueOf(chosenNumber));
-    availableNumbers.remove(Integer.valueOf(chosenNumber));
-
-    // Alternate turns
-    if (turn.get() % 2 == 0) {
-      turn.incrementAndGet();
-      promptPlayer(client2); // Prompt second player
-    } else {
-      turn.incrementAndGet();
-      promptPlayer(client1); // Prompt first player
-    }
-
-    // Check if all numbers have been chosen
-    if (client1Numbers.size() == 4 && client2Numbers.size() == 4) {
-      announceWinner();
-    }
+  private void sendNumbersToPlayer(WebSocketSession session, List<Integer> numbers) throws IOException {
+    String message = "Your numbers: " + numbers.toString();
+    session.sendMessage(new TextMessage(message));
   }
 
-  private void announceWinner() throws IOException {
-    int client1Total = client1Numbers.stream().mapToInt(Integer::intValue).sum();
-    int client2Total = client2Numbers.stream().mapToInt(Integer::intValue).sum();
+  private List<Integer> getPlayerNumbers(WebSocketSession session) {
+    return sessions.iterator().next().equals(session) ? player1Numbers : player2Numbers;
+  }
 
-    String winnerMessage = "Game over! ";
-    if (client1Total > client2Total) {
-      winnerMessage += "Player 1 wins with a total of " + client1Total + "!";
-    } else if (client2Total > client1Total) {
-      winnerMessage += "Player 2 wins with a total of " + client2Total + "!";
+  private String compareChoices() {
+    int player1Total = player1Choices.stream().mapToInt(Integer::intValue).sum();
+    int player2Total = player2Choices.stream().mapToInt(Integer::intValue).sum();
+
+    if (player1Total > player2Total) {
+      return "Player 1 wins!";
+    } else if (player2Total > player1Total) {
+      return "Player 2 wins!";
     } else {
-      winnerMessage += "It's a tie! Both players have the same total.";
+      return "It's a tie!";
     }
-
-    client1.sendMessage(new TextMessage(winnerMessage));
-    client2.sendMessage(new TextMessage(winnerMessage));
-
-    // Reset the game for the next round
-    resetGame();
   }
 
   private void resetGame() {
-    availableNumbers.clear();
-    client1Numbers.clear();
-    client2Numbers.clear();
-    turn.set(0);
-    client1 = null;
-    client2 = null;
+    // Reset the lists for the next round
+    player1Choices.clear();
+    player2Choices.clear();
+    generateNumbers(player1Numbers);
+    generateNumbers(player2Numbers);
+
+    // Announce the start of the next round
+    for (WebSocketSession ws : sessions) {
+      try {
+        ws.sendMessage(new TextMessage("Starting a new round! Choose a number."));
+      } catch (IOException e) {
+        e.printStackTrace();
+      }
+    }
+  }
+
+  private void sendNextTurnMessage() throws IOException {
+    if (player1Choices.size() < 4) {
+      sessions.iterator().next().sendMessage(new TextMessage("It is Player 1's turn. Please choose a number."));
+      sessions.iterator().next().sendMessage(new TextMessage("Waiting for Player 1 to choose a number."));
+    } else if (player2Choices.size() < 4) {
+      sessions.iterator().next().sendMessage(new TextMessage("It is Player 2's turn. Please choose a number."));
+      sessions.iterator().next().sendMessage(new TextMessage("Waiting for Player 2 to choose a number."));
+    }
+  }
+
+  private void generateNumbers(List<Integer> numbers) {
+    // Generate 4 random numbers between 1 and 100
+    numbers.clear();
+    for (int i = 0; i < 4; i++) {
+      numbers.add((int) (Math.random() * 100) + 1);
+    }
   }
 }
